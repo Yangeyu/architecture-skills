@@ -1,189 +1,112 @@
 # Module Organization
 
-本文件用于模块归属、阅读入口、调用层次和基础设施边界设计。
+用两个场景区分：**需要立即表达的语义边界**，以及**随信息密度调整的内部细分**。
 
-## 1. Organize Around Business Capabilities
-
-模块优先围绕业务能力组织。
-
-例如：
+## 1. 命令系统：机制与成员从一开始分开
 
 ```text
-analysis/
-├── workflow.ts
-├── prepare/
-├── research/
-├── analyze/
-├── verify/
-└── report/
+commands/
+├── index.ts                 # 选择成员并绑定依赖
+├── contracts.ts             # 必要的共同契约
+├── catalog.ts               # 发现、匹配、帮助与补全
+├── dispatch.ts              # 公共执行协调
+└── builtins/                # 可增长的内置命令集合
+    ├── copy.ts              # 简单但完整的成员
+    └── export/              # 内部有多个实质组成的成员
+        ├── index.ts         # 定义与完整流程
+        ├── markdown.ts
+        └── html.ts
 ```
 
-这里的目录是假设这些阶段已经形成稳定业务能力的示例，
-不是要求每个流程步骤建立一个目录。
+`commands/` 父层表达相对稳定的系统组成，`builtins/` 承载增长的具体命令。
+即使只有少量命令也保留集合边界；必要组装或公共契约仍可随真实需求变化。
+读整体看父层与组装，读管理规则看机制，读某个命令直接进入成员。
 
-简单阶段可以保留为同文件函数。
-紧密关联、经常共同变化的阶段可以属于同一模块。
+`copy.ts` 与 `export/` 都是完整成员，不必统一成目录。成员应集中元数据、参数解释和行为，
+避免散成定义表、动作表和多层装配回调。外部动态命令可沿已有来源接入；别名不必另建成员。
+此样例不要求普通模块都具备 catalog、dispatch 或独立契约文件。
 
-组织依据优先是：
+## 2. 报告研究：完整能力先分层，内部细分看密度
 
-- 业务职责；
-- 规则与知识归属；
-- 共同变化；
-- 对外契约。
+```text
+reports/
+├── generate.ts
+├── research/
+│   ├── index.ts             # 研究流程与短小局部函数
+│   ├── search-web.ts
+│   └── search-database.ts
+└── render.ts
+```
 
-不是技术角色，也不是流程步骤数量。
+`research/` 揭示报告的一项组成，并提供集中阅读和扩展的位置，不只是减少根目录文件。
+内部只有少量组成时，不必立刻增加 `sources/`。来源增多、混排妨碍扫描时，再整理为：
 
-## 2. Provide a Reading Entry
+```text
+research/
+├── index.ts
+└── sources/
+    ├── web.ts
+    ├── database.ts
+    ├── documents.ts
+    └── archive.ts
+```
 
-为模块提供明确的主要阅读入口。
+这次展开的收益是降低当前层的信息密度，不是达到某个文件数阈值。
+短小、局部使用且没有独立扩展预期的 `prepareQueries`、`mergeEvidence` 可留作同文件函数；
+有实际独立职责或丰富实现时再拆分。**值得命名的步骤，不等于值得独立定位的成员。**
 
-流程模块可以使用 `workflow.ts`，
-但不要求已有项目统一采用这个文件名。
+## 3. 通过显式依赖组装成员
 
-打开入口应能快速理解：
+外部协作在组装入口连接，成员保留完整行为。以下假设对话能力提供可复制文本，
+已有异步 `pipeline` 依次传递结果并传播失败：
 
-- 模块负责什么；
-- 主执行阶段是什么；
-- 阶段之间如何连接；
-- 重要副作用和失败边界在哪里。
+```ts
+// commands/builtins/copy.ts
+type CopyDependencies = {
+  readConversation: (id: string) => Promise<string>
+  writeClipboard: (content: string) => Promise<void>
+}
 
-实现细节继续下沉到对应模块。
+export function createCopyCommand({
+  readConversation,
+  writeClipboard,
+}: CopyDependencies) {
+  const execute = pipeline(
+    readConversation,
+    writeClipboard,
+  )
 
-目录回答“在哪里”，
-入口回答“做什么”，
-深入后回答“怎么做”。
+  return { name: "copy", execute }
+}
+```
 
-不要为了入口看起来简短，
-隐藏影响调用方判断的重要契约。
+```ts
+// commands/index.ts，省略来自实际所属模块的导入。
+const copy = createCopyCommand({
+  readConversation,
+  writeClipboard,
+})
 
-## 3. Flow Order ≠ Module Boundary
+const builtins = [copy]
+```
 
-调用顺序用于叙述执行过程。
-模块边界用于组织职责和变化。
+创建函数在此表达依赖绑定，即使只有一个实现也有价值。普通依赖对象和显式成员数组即可，
+无需容器、服务定位器或层层工厂；类型、常量和内部实现仍可正常导入。
+注入时保留接收者绑定、资源所有权与生命周期，不给每个局部函数传递全部能力。
 
-例如：
+机制使用成员契约并承载共同规则，不能硬编码成员的领域行为；
+复制命令使用对话和剪贴板能力，不因此接管它们的规则和状态。
+行为入口的阶段、策略与局部控制见 [Flow Expression](flow-expression.md)，不为目录逐级创建转发。
 
-加载规则 → 执行规则 → 生成报告
+## 4. 用变化检查边界
 
-加载规则与执行规则可能共同属于 rules 能力，
-不必因为先后执行而拆成两个独立模块。
+| 变化 | 自然修改位置 | 检查点 |
+| --- | --- | --- |
+| 新增内置命令 | 成员与必要组装 | 无关成员和机制不因增长被迫修改 |
+| 扩充命令内部实现 | 对应文件或成员目录 | 不为对称调整其他成员外形 |
+| 修改共同匹配规则 | catalog 及测试 | 不逐个修改成员的领域行为 |
+| 增加研究来源 | 现有来源位置，必要时再分组 | 不牵连其他报告能力 |
 
-反过来，两个连续步骤如果分别拥有独立规则和契约，
-也不应仅因相邻就合并。
-
-检查边界时问：
-
-修改同一条业务规则，需要到哪些地方？
-这些地方是否属于同一个合理的知识范围？
-
-## 4. Avoid Technical Layer Chasing
-
-不要默认形成：
-
-Controller
-→ Service
-→ Manager
-→ Handler
-→ Executor
-→ Adapter
-
-这些角色不是禁止使用。
-只有存在明确职责边界时才创建。
-
-新增一层前检查：
-
-1. 是否产生稳定语义？
-2. 是否隐藏调用方不需要理解的复杂度？
-3. 是否缩短阅读路径？
-4. 是否提高局部内聚？
-5. 是否减少修改影响范围？
-
-如果主要作用只是转发调用，不要增加该层。
-
-但不能仅因实现短，就认定一层没有价值。
-权限边界、事务管理、协议转换和外部系统适配
-都可能承担真实职责。
-
-## 5. Avoid Premature Infrastructure
-
-不要看到流程就立即创建：
-
-- WorkflowEngine；
-- PipelineRuntime；
-- GraphExecutor；
-- StepRegistry；
-- FlowManager；
-- ExecutionFactory。
-
-普通函数和简单组合可以解决时保持简单。
-
-只有出现真实需求，例如：
-
-- dynamic workflow；
-- checkpoint；
-- resume；
-- scheduling；
-- distributed execution；
-- observability；
-- runtime retry；
-
-才逐步评估 Runtime Infrastructure。
-
-需求出现不代表必须创建完整引擎。
-先判断现有机制或局部能力是否足够。
-
-例如需要记录阶段耗时，
-不自动等于需要一套 Workflow Runtime。
-
-## 6. Keep Changes Local
-
-选择一个真实或明确标注为假设的变化，推演修改范围。
-
-例如：新增一个研究来源。
-
-检查：
-
-- 来源实现是否主要落在 research 内？
-- 顶层流程是否只在执行关系变化时才需要调整？
-- analyze 和 report 是否被迫理解来源细节？
-- 测试、配置和契约是否能在明确位置找到？
-
-局部内聚不是禁止跨模块修改。
-如果外部契约真实变化，传播可能合理。
-
-要避免的是：
-一个局部业务变化，因为技术层分散而触碰多个无关位置。
-
-## 7. Respect Existing Structure
-
-先读取现有模块和真实调用链，
-不要根据目录名称直接判断架构优劣。
-
-优先复用合理结构，不为了统一风格搬迁代码。
-
-需要调整边界时，说明：
-
-- 具体问题；
-- 最小迁移范围；
-- 受影响调用方；
-- 必须保留的契约；
-- 兼容与清理安排。
-
-不默认保留所有旧转发层，
-也不默认删除所有旧入口。
-
-依据项目要求和实际调用方决定。
-
-## 8. Final Check
-
-好的模块结构应同时满足：
-
-- 业务归属清楚；
-- 主入口容易找到；
-- 调用路径有意义；
-- 相关规则集中；
-- 重要契约可追踪；
-- 修改影响可以解释；
-- 基础设施复杂度有现实依据。
-
-不要以目录整齐、文件更少或层数更浅作为唯一成功标准。
+真实契约变化可以跨模块传播，避免的是无关牵连。
+纯定位问题可以只整理目录；职责分散时才需要收拢职责、依赖与入口。
+测试关注成员行为、共同规则与必要的跨边界流程，而不只是旧文件是否消失。

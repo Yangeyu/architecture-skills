@@ -1,268 +1,142 @@
 # Flow Expression
 
-本文件用于顺序流程、函数组合、局部控制和 Named Flow 设计。
-以下 API 为表达示例，不是要求项目实现的框架接口。
+以下是结构样例，不是待实现的框架。业务类型与能力契约沿用项目定义；
+后续片段展示已绑定依赖后的内部行为，不要求拼接成同一文件。
 
-## 1. Local Logic → Function
+## 1. 一个流程同时表达阶段、数据与策略
 
-局部行为、判断、算法和循环优先使用普通函数。
-
-```ts
-async function resolveResult(ctx) {
-  const result = await infer(ctx)
-
-  if (hasToolCalls(result)) {
-    return executeTools(result)
-  }
-
-  return complete(result)
-}
-```
-
-正常的 if、switch、for、return、try/catch 不是结构问题。
-
-不要为了声明式消灭普通控制流。
-如果普通函数已经最清楚，就使用普通函数。
-
-## 2. Sequential Flow → Functional Composition
-
-具有明确业务阶段的流程，优先让阶段连续组合：
+假设报告输入包含 `topic`、`requirements`、`format`，研究允许对约定的可恢复错误使用缓存。
+`ReportInput`、`ReportCapabilities` 表示已有业务类型，此处省略类型声明，集中展示阅读结构：
 
 ```ts
-const analysis = pipeline(
-  prepare,
+function createReport({
+  prepareQueries,
   research,
-  analyze,
-  verify,
-  persist,
-)
-```
+  readCachedEvidence,
+  analyzeEvidence,
+  renderReport,
+}: ReportCapabilities) {
+  return function generateReport(input: ReportInput) {
+    const flow = pipeline(
+      prepareQueries,
 
-阅读顺序就是：
+      // 缓存回退是本流程的策略，不是 research 隐含的行为。
+      withFallback(research, readCachedEvidence),
 
-prepare → research → analyze → verify → persist
+      evidence => analyzeEvidence(evidence, input.requirements),
+      analysis => renderReport(analysis, input.format),
+    )
 
-也可以通过显式调用表达：
-
-```ts
-async function analysis(input) {
-  const context = await prepare(input)
-  const evidence = await research(context)
-  const result = await analyze(evidence)
-  const verified = await verify(result)
-  return persist(verified)
+    return flow(input.topic)
+  }
 }
 ```
 
-选择依据是流程和数据传递是否清楚，
-不是是否使用了 `pipeline()`。
+这个样例同时落实四件事：
 
-项目已有合理机制时，可以使用少量稳定结构原语：
+- 创建入口显式绑定外部能力，行为内部保留完整阶段。
+- 匿名函数与闭包让附加参数在使用处可见，无需把所有数据塞入统一 Context。
+- 回退策略在对应阶段可见，策略内部实现继续下沉。
+- 空行区分获取证据与后续处理，注释补充策略归属，不逐行复述代码。
 
-- pipeline；
-- parallel；
-- branch；
-- loop。
+这里假设 `pipeline` 类型安全且支持异步：依次等待完成，将结果传给下一阶段，失败则停止并传播。
+`research` 与缓存读取都接收查询并返回相容证据；仅约定的可恢复研究错误触发回退，
+取消、权限失败不在回退范围，缓存失败继续传播。这些是样例契约，不是 API 名称自带的保证。
 
-不要为了应用本 Skill 创建 Workflow Framework。
+参数不同不是放弃组合的理由；保持真实签名，在需要的阶段就地衔接。
+若衔接代码淹没阶段或难以如实表达资源边界，再在对应局部采用显式调用。
+策略包装承载实际执行意义，不是应删除的无语义转发；也不必给每个调用添加包装。
 
-## 3. Two-Level Composition Budget
+## 2. 沿阅读路径继续展开
 
-默认最多使用两层清晰的函数组合。
+进入上例的 `research`，继续看到检索与汇合，而不是一个不透明的通用执行器：
 
 ```ts
-const analysis = pipeline(
-  prepare,
-
+const research = pipeline(
   parallel(
-    researchWeb,
-    researchDatabase,
+    searchWeb,
+    searchDatabase,
   ),
 
-  analyze,
-  persist,
+  mergeEvidence,
 )
 ```
 
-可以直接理解为：
-
-prepare
-→ [researchWeb + researchDatabase]
-→ analyze
-→ persist
-
-两层是认知复杂度预算，不是机械的括号计数。
-
-核心判断：
-
-阅读当前代码时，能否直接理解执行结构，
-而不必同时追踪多套嵌套控制规则？
-
-不要通过机械提取碎片函数来满足数字要求。
-
-## 4. Avoid Deep Composition
-
-避免让组合形成明显括号树：
+两路检索接收相同查询，输出各自的证据；`mergeEvidence` 接收汇合结果，不依赖隐式共享状态。
+进入 `searchDatabase` 后，仍可按阶段展开：
 
 ```ts
-pipeline(
-  prepare,
+const searchDatabase = pipeline(
+  buildDatabaseQuery,
+  fetchDatabasePages,
 
-  loop(
-    pipeline(
-      infer,
-
-      branch(hasToolCalls, {
-        true: executeTools,
-        false: complete,
-      }),
-    ),
-  ),
-
-  persist,
+  parseDatabaseRecords,
+  deduplicateEvidence,
 )
 ```
 
-按顺序判断：
+再进入分页实现时，用清楚的局部循环表达分页状态和退出条件。
+组合与普通函数都可出现在各层，不规定“顶层组合、内部命令式”。
+有完整业务含义的子流程即 Named Flow；名称帮助展开，不自动要求新文件、基类或运行时。
 
-1. 是否存在值得命名的稳定业务子流程？
-2. 是否应该让局部逻辑回归普通函数？
-3. 问题是否本质上已经是非线性关系网络？
+并发之前确认任务确实独立、可共享哪些输入，以及副作用是否冲突。
+明确结果如何对应任务、何时汇合、并发数量，以及失败后其他任务是继续、等待还是取消。
+`Promise.all` 拒绝后不会自动取消其他任务；`parallel` 也不能仅凭名字推断有取消或限流能力。
 
-不要仅因为括号变多就立即采用 Graph。
+## 3. 局部控制保持平坦
 
-## 5. Named Flow
+避免让多层 `if / for` 或组合括号树承载所有细节。
+用卫语句排除例外，用完整子行为承接内层工作，而不是把原嵌套原样搬进新名字：
 
-当一组行为形成稳定业务概念时，提取 Named Flow。
+```ts
+async function publishReadyReports(reports) {
+  for (const report of reports) {
+    if (!report.ready) continue
+
+    // 必须逐份等待提交，保持既有发布顺序。
+    await publishReport(report)
+  }
+}
+
+async function publishReport(report) {
+  if (!canPublish(report)) return
+
+  const rendered = await renderReport(report)
+  await persistReport(rendered)
+}
+```
+
+集合遍历与单份报告的完整行为分别可读。浅层卫语句不等于多层控制树；
+展平时保留校验顺序、副作用与清理，特别注意 `return`、`continue`、`break` 的作用范围。
+
+同样，Agent 循环可将一次推理及结果处理命名为 `agentIteration`，父层只表达重复与退出：
 
 ```ts
 const agentExecution = loop(
   agentIteration,
   { until: completed },
 )
-
-const workflow = pipeline(
-  prepare,
-  agentExecution,
-  persist,
-)
 ```
 
-局部复杂度继续下沉：
+深入 `agentIteration` 后仍应看清推理、工具调用或完成判断。
+循环必须有真实的状态推进、完成条件与适用的终止保护，不能靠命名隐藏控制复杂度。
+业务层级可以继续展开，不把避免嵌套变成目录或调用链的固定层数限制。
 
-```ts
-async function agentIteration(ctx) {
-  const result = await infer(ctx)
+## 4. 选择工具并核对执行契约
 
-  if (hasToolCalls(result)) {
-    return executeTools(result)
-  }
+`pipeline`、`parallel`、`branch`、`loop` 分别表达顺序、并发、条件与重复，名称服从项目实际 API。
+节点及其转移成为主要信息时，读取 [Graph Expression](graph-expression.md)，而非按括号数升级 Graph。
+Fluent 可用于让组合、配置或转移更局部连续，不以链式外观决定设计。
 
-  return complete(result)
-}
-```
+采用工具或调整表达时，按实际实现检查：
 
-顶层保持：
+- 输入输出类型、异步完成值与跨阶段依赖；
+- 分支返回、循环状态和退出，策略适用范围与失败传播；
+- 并发汇合、在途任务处理、超时、取消、重试与补偿；
+- 副作用顺序、事务、资源所有权与清理。
 
-prepare → agentExecution → persist
+保留闭包捕获值的生命周期与可变性约束，不用类型断言或无语义适配掩盖不兼容。
+移出原有策略须保持行为；新增回退、改变重试或将顺序改为并行属于行为变化。
 
-进入 agentExecution 后才理解 Agent 内部行为。
-
-Named Flow 是业务层级，不要求特殊类型、基类或运行时。
-普通函数也可以承担 Named Flow。
-
-### Naming
-
-推荐：
-
-- research；
-- contextPreparation；
-- agentExecution；
-- verification；
-- reportGeneration。
-
-避免：
-
-- innerFlow；
-- subPipeline；
-- flow1；
-- processFlow；
-- handlerFlow。
-
-提取前检查：
-
-- 是否能用稳定业务语言解释它？
-- 调用方是否无需理解内部步骤？
-- 深入后是否能获得一个完整子流程？
-- 是否只是为了减少括号或转发参数？
-
-不要为了拆分而创建无语义 Named Flow。
-
-## 6. Hierarchical Composition Before Graph
-
-复杂流程优先考虑：
-
-Named Flow + Hierarchical Composition
-
-如果普通函数和有业务名称的子流程已经清楚，
-就不需要把整个流程改成 Graph。
-
-只有当节点及其转移关系更自然地表达问题时，
-才读取 [Graph Expression](graph-expression.md) 并评估 Graph。
-
-## 7. Fluent API
-
-Fluent 不是默认结构表达原则。
-
-不要因为追求声明式而主动创建：
-
-```ts
-workflow()
-  .then(...)
-  .when(...)
-  .parallel(...)
-  .then(...)
-```
-
-如果 Functional Composition 更直接，就使用它。
-
-Fluent 更适合：
-
-- Configuration；
-- Builder；
-- Incremental Construction；
-- Node-local Graph Transition。
-
-例如：
-
-```ts
-step(verify)
-  .next("publish")
-  .when(verificationFailed, "repair")
-```
-
-这里 Fluent 有价值，
-因为相关 transition 属于同一个 Node。
-
-判断标准：
-
-是否让相关语义更加局部和连续？
-
-而不是：
-
-是否可以使用链式 API？
-
-## 8. Execution Contract Check
-
-采用组合机制时，确认已有实现如何处理：
-
-- 阶段输入输出；
-- 并行结果汇合；
-- 分支返回；
-- 循环状态更新与退出；
-- 错误、取消和重试。
-
-不能根据 API 名称猜测执行语义。
-
-以上循环示例只表达结构；
-实际实现必须有明确的完成条件及适用的终止保护。
+优先复用已有能力，缺少支撑时可提供所需的最小组合工具，并验证其承诺的契约。
+组合支撑不等于调度、持久化或恢复运行时；普通函数或现有库足够时，就停在那里。

@@ -5,7 +5,7 @@
 | Skill | 职责 | 典型场景 |
 | --- | --- | --- |
 | [architecture-co-design](skills/architecture-co-design/SKILL.md) | 澄清需求、讨论模块边界与取舍，共同收敛方案 | 模块怎么拆、目录怎么组织、代码太碎、修改牵连过多 |
-| [structure-expression](skills/structure-expression/SKILL.md) | 选择和审查结构表达，让主流程可读、语义内聚、复杂度逐层展开 | Function / Composition / Named Flow / Graph 选择，深层嵌套与流程追踪 |
+| [structure-expression](skills/structure-expression/SKILL.md) | 让目录与代码贴合阅读偏好：组成清楚、阶段连续、控制流平坦、细节逐层展开 | 目录与成员集合、模块粒度、阶段组合与数据衔接、视觉组织、Graph 转移 |
 
 ## 配合方式
 
