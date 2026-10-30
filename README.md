@@ -1,11 +1,12 @@
 # Architecture Skills
 
-面向阅读、修改与人机协作的两个独立 Skill：同仓维护，按需加载，协同演进。
+面向阅读、修改、评估与人机协作的三个 Skill：同仓维护，按需加载，协同演进。
 
 | Skill | 职责 | 典型场景 |
 | --- | --- | --- |
 | [architecture-co-design](skills/architecture-co-design/SKILL.md) | 从核心需求形成职责、协作、执行与副作用边界，用样本和变化收敛方案 | 新功能设计、模块归属、日志与执行边界、扩展方向、修改牵连 |
 | [structure-expression](skills/structure-expression/SKILL.md) | 将设计落实为可阅读、维护和扩展的目录、组装与行为 | 成员集合、各层函数组合、数据与日志、语义留白、Graph 转移 |
+| [architecture-review](skills/architecture-review/SKILL.md) | 依据现有偏好与项目约定评估实现，以真实链路、反证和变化推演形成结论，默认只读 | 架构体检、偏好匹配、模块边界、隔离解耦、变更影响 |
 
 ## 配合方式
 
@@ -16,7 +17,9 @@
 
 共同使用时，复用同一份调查、设计样本与阅读/变更推演，不重复执行两套完整流程。结构偏好不自动推翻已确认方案，也不替代实际项目约束。
 
-两个 Skill 独立可用，不需要第三个管理 Skill。`references/` 根据各自 `SKILL.md` 的条件加载，不默认一次读完。
+共创和结构表达可独立使用。评估 Skill 复用它们的设计依据，不复制偏好规则、不充当管理层；配套 Skill 不可用时，明确个人偏好覆盖缺口，仍可依据用户提供的原则与项目约定评审。`references/` 根据各自 `SKILL.md` 的条件加载，不默认一次读完。
+
+评估先交付证据与最小调整方向，不自动改代码或写报告。只有需要协商职责或关键取舍时才衔接共创，授权实施后使用结构表达；已有调查与推演不重复执行。实际风险、偏好偏离、可选改善和待核实项分别报告，不用总分掩盖差异。
 
 新建功能从一条完整场景建立结构，改进现有功能时将新增能力融入合理的职责与契约，按实际问题调整边界。
 各层优先用函数组合表达逻辑关系，用空行组织语义区段，以完整行为逐层展开；
@@ -36,19 +39,23 @@ skills/
 │   └── references/
 │       ├── dialogue-examples.md
 │       └── design-agreement.md
-└── structure-expression/
+├── structure-expression/
+│   ├── SKILL.md
+│   └── references/
+│       ├── flow-expression.md
+│       ├── graph-expression.md
+│       └── module-organization.md
+└── architecture-review/
     ├── SKILL.md
-    └── references/
-        ├── flow-expression.md
-        ├── graph-expression.md
-        └── module-organization.md
-scripts/check.py          # 无第三方依赖的基础文档检查
-tests/evaluation.md       # 手动行为验证场景，不是自动通过的测试
+    └── references/review-report.md
+scripts/check.py                # 无第三方依赖的基础文档检查
+tests/evaluation.md             # 手动行为验证场景，不是自动通过的测试
+tests/architecture-review.md    # 评估分类与防误报的行为验证场景
 ```
 
 ## 安装到本地 skills 目录
 
-推荐克隆仓库，再将两个 Skill 目录分别链接到 `~/.agents/skills/`。仓库是唯一维护源，安装目录只负责加载。
+推荐克隆仓库，再将需要的 Skill 目录分别链接到 `~/.agents/skills/`；完整使用个人偏好评估时安装三个。仓库是唯一维护源，安装目录只负责加载。
 
 ```sh
 gh repo clone Yangeyu/architecture-skills
@@ -56,7 +63,7 @@ cd architecture-skills
 python3 scripts/check.py
 ```
 
-以下命令适用于 macOS / Linux，要求两个目标名称尚未安装。它会先检查冲突，不覆盖已有目录或链接。已有安装应先备份到 `~/.agents/skills/` 之外，再执行。
+以下命令适用于 macOS / Linux 的首次完整安装，要求三个目标名称尚未安装。它会先检查冲突，不覆盖已有目录或链接。已有安装只补充缺少的名称即可（修改下面两处循环的名称列表）；需要替换的安装应先备份到 `~/.agents/skills/` 之外，再执行。
 
 ```sh
 (
@@ -65,7 +72,7 @@ python3 scripts/check.py
   destination="$HOME/.agents/skills"
   mkdir -p "$destination"
 
-  for name in architecture-co-design structure-expression; do
+  for name in architecture-co-design structure-expression architecture-review; do
     test -f "$repo/skills/$name/SKILL.md"
     if [ -e "$destination/$name" ] || [ -L "$destination/$name" ]; then
       printf '目标已存在，请先检查并备份：%s\n' "$destination/$name" >&2
@@ -73,20 +80,22 @@ python3 scripts/check.py
     fi
   done
 
-  for name in architecture-co-design structure-expression; do
+  for name in architecture-co-design structure-expression architecture-review; do
     ln -s "$repo/skills/$name" "$destination/$name"
   done
 )
 ```
 
-安装后确认客户端技能目录中出现两个名称，并分别尝试加载主文件及参考文档。客户端可能需要刷新或重启；本仓库不假定所有客户端都支持符号链接。
+安装后确认客户端技能目录中出现所安装的名称，并分别尝试加载主文件及参考文档。客户端可能需要刷新或重启；本仓库不假定所有客户端都支持符号链接。
 
 如果客户端不支持链接，在备份旧安装后复制 `skills/<name>/` 到配置目录。仍只编辑仓库文件，更新时重新安装，避免维护两份不同内容。
 
 ### 调用与客户端配置
 
-- 手动入口：`/architecture-co-design`、`/structure-expression`（客户端支持斜杠调用时）。
-- 两个 Skill 当前的 frontmatter 都允许自动调用，并保留手动入口。
+- 手动入口：`/architecture-co-design`、`/structure-expression`、`/architecture-review`（客户端支持斜杠调用时）。
+- 三个 Skill 当前的 frontmatter 都允许自动调用，并保留手动入口。
+- 评估示例：`/architecture-review 检查 commands 的职责、依赖与新增成员的修改范围，按我的结构偏好评估，只报告不修改。`
+- 变更示例：`/architecture-review 评估当前未提交改动及必要调用方，区分新增风险、偏好偏离和原有问题。`
 - 本机 Harness 使用 `SKILL.md` 的 `disable-model-invocation` 与 `user-invocable` 字段。
 - `architecture-co-design/agents/openai.yaml` 是迁移前已有的 Codex 配置，原样保留；它不能替代 Harness 的 frontmatter 配置。
 

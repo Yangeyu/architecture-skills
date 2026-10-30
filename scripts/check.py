@@ -8,7 +8,7 @@ from urllib.parse import unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SKILLS = ("architecture-co-design", "structure-expression")
+SKILLS = ("architecture-co-design", "structure-expression", "architecture-review")
 
 
 def check_metadata(path, text):
