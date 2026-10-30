@@ -117,3 +117,57 @@ const builtins = [copy]
 真实契约变化可以跨模块传播，避免的是无关牵连。
 纯定位问题可以只整理目录；职责分散时才需要收拢职责、依赖与入口。
 测试关注成员行为、共同规则与必要的跨边界流程，而不只是旧文件是否消失。
+
+## 5. 配置对象：连续阅读与明确覆盖
+
+以下均为假设示例。穿插展开既打断字段阅读，也隐藏覆盖顺序：
+
+```ts
+const config = {
+  name: "export",
+  ...defaults,
+  timeout: 5000,
+  ...userOptions,
+  retries: 3,
+}
+```
+
+`defaults` 可覆盖 name，`userOptions` 可覆盖 timeout，retries 由本处决定。
+前移展开会改变优先级；应在配置解析处明确规则，不能按排版重排。
+
+若契约是“基础配置 + 本处最终覆盖”，则写成：
+
+```ts
+const config = {
+  ...baseOptions,
+
+  name: "export",
+  timeout: 5000,
+  retries: 3,
+}
+```
+
+**这不是上一例的等价重排。** 局部变体无需另建解析器。
+
+跨模块组装显式选择所需能力与配置：
+
+```ts
+const exporter = createExporter({
+  readDocument: services.readDocument,
+  writeFile: services.writeFile,
+
+  format: options.format,
+  destination: options.destination,
+})
+```
+
+能力函数须已绑定或不依赖 this。若下游接收契约明确的 `ExportOptions`，可整体传入，不必重抄字段。
+配置解析应承担真实的优先级、缺省或校验规则，而非仅用 mergeConfig 藏起展开。
+
+保留这些语义边界：
+
+- `{ ...defaults, timeout: undefined }` 覆盖默认值，不等于未提供字段。
+- `{ ...defaults, ...userOptions }` 是浅合并，嵌套对象整体替换。
+- getter 和字段构造可能有副作用；最终值相同，不代表重排等价。
+
+仅有阅读阻力属于偏好偏离；有具体失败路径才报告实际风险。清晰的局部展开不算缺陷。
